@@ -4,14 +4,15 @@ Developing CUDA Kernels for Accelerated Matrix Multiplication on NVIDIA Hopper A
 With reference to the functionality exposed by CUTLASS, performance is sensitive to many parameters such as:
 
 决定 cuda 矩阵乘法的因素包含以下
+
   Shape of matrices (tall, skinny, or square);
-• Layout of matrices (row or column);
-• Number of warps per thread block;
-• Thread block shape;
-• Thread cluster shape;
-• Number of pipeline stages in the software pipelining optimization;
-• Chosen precision (TF32 vs FP32 vs FP16 vs FP8);
-• Usage of special MMA instructions like WGMMA or TMA.
+- Layout of matrices (row or column);
+- Number of warps per thread block;
+- Thread block shape;
+- Thread cluster shape;
+- Number of pipeline stages in the software pipelining optimization;
+- Chosen precision (TF32 vs FP32 vs FP16 vs FP8);
+- Usage of special MMA instructions like WGMMA or TMA.
   
 A basic listing of CUTLASS-based Matmul is described in Listing 1. Apart from CuTe, CUTLASS has the
 following 3 important APIs for GEMM, each corresponding to a distinct level of the GPU memory hierarchy [12]:
