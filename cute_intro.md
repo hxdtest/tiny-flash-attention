@@ -89,3 +89,16 @@ using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
 ```c++
 using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 ```
+
+
+# Tiled Matrix Multiplication Using CuTe
+CuTe is another API within the CUTLASS API that provides even more flexibility to develop GEMM kernels. It specifically introduces the concept of Shapes and Layouts, using which programmers can define the different levels of tiling explicitly. Additionally, it provide APIs to:
+
+使用cute进行矩阵乘法的workflow，提供了以下的API
+- (a) Convert matrices in to tensors and partition them;
+- (b) Access the tiles of a tensor that belong to a thread block (local_tiles);
+- (c) Make a local partition of a tensor that belongs to a thread within a thread block (local_partition);
+- (d) Copy between GEMM, SMEM and RMEM (copy);
+- (e) Multiply tensors with special Matmul instructions like WGMMA (gemm);
+- (f) Synchronize between thread clusters;
+- (g) Make special swizzle layouts for shared memory.
