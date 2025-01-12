@@ -232,3 +232,129 @@ CuTe is another API within the CUTLASS API that provides even more flexibility t
 - (e) Multiply tensors with special Matmul instructions like WGMMA (gemm);
 - (f) Synchronize between thread clusters;
 - (g) Make special swizzle layouts for shared memory.
+
+
+###  plain SIMT mul-add
+ 
+```
+template <class MShape, class NShape, class KShape,
+class TA, class AStride, class ABlockLayout, class AThreadLayout,
+class TB, class BStride, class BBlockLayout, class BThreadLayout,
+class TC, class CStride, class CBlockLayout, class CThreadLayout,
+class Alpha, class Beta>
+__global__ static
+void
+gemm_device(MShape M, NShape N, KShape K,
+TA const* A, AStride dA, ABlockLayout blockA, AThreadLayout tA,
+TB const* B, BStride dB, BBlockLayout blockB, BThreadLayout tB,
+TC * C, CStride dC, CBlockLayout blockC, CThreadLayout tC,
+Alpha alpha, Beta beta)
+{
+using namespace cute;
+using X = Underscore;
+// Shared memory buffers.
+__shared__ TA smemA[cosize_v<ABlockLayout>];
+__shared__ TB smemB[cosize_v<BBlockLayout>];
+auto sA = make_tensor(make_smem_ptr(smemA), blockA);
+auto sB = make_tensor(make_smem_ptr(smemB), blockB);
+// Represent the full tensors.
+auto mA = make_tensor(make_gmem_ptr(A), make_shape(M,K), dA);
+auto mB = make_tensor(make_gmem_ptr(B), make_shape(N,K), dB);
+auto mC = make_tensor(make_gmem_ptr(C), make_shape(M,N), dC);
+// Get the appropriate blocks for this thread block.
+auto MT = size<0>(sA);
+auto NT = size<0>(sB);
+auto KT = size<1>(sB);
+auto gA = local_tile(mA, make_shape(MT, KT), make_coord(blockIdx.x, _));
+auto gB = local_tile(mB, make_shape(NT, KT), make_coord(blockIdx.y, _));
+auto gC = local_tile(mC, make_shape(MT, NT), make_coord(blockIdx.x, blockIdx.y);
+// Define partitioned views of GMEM and SMEM for COPY
+
+auto tAgA = local_partition(gA, tA, threadIdx.x);
+auto tAsA = local_partition(sA, tA, threadIdx.x);
+auto tBgB = local_partition(gB, tB, threadIdx.x);
+auto tBsB = local_partition(sB, tB, threadIdx.x);
+// Define partitioned views of SMEM for GEMM.
+// Partition sA (M,K) by the rows of tC.
+auto tCsA = local_partition(sA, tC, threadIdx.x, Step<_1, X>{});
+// Partition sB (N,K) by the cols of tC.
+auto tCsB = local_partition(sB, tC, threadIdx.x, Step< X,_1>{});
+// Partition gC (M,N) by the tile of tC.
+auto tCgC = local_partition(gC, tC, threadIdx.x, Step<_1,_1>{});
+// Allocate the accumulators (RMEM).
+auto tCrC = make_fragment_like(tCgC);
+// Clear the accumulators
+clear(tCrC);
+
+
+// Data is copied from GMEM to SMEM using the COPY views.
+// gemm(.) operates on the GEMM views.
+auto k_max = size<2>(tAgA);
+for (int k = 0; k < k_max; ++k) {
+// Copy GMEM to SMEM.
+copy(tAgA(_,_,k), tAsA);
+copy(tBgB(_,_,k), tBsB);
+cp_async_fence();
+cp_async_wait<0>();
+__syncthreads();
+// Compute GEMM on SMEM.
+// Accumulate to registers.
+gemm(tCsA, tCsB, tCrC);
+__syncthreads();
+}
+ 
+// Epilogue fusion goes here.
+for (int i = 0; i < size(tCgC); ++i)
+{
+tCgC(i) = tCrC(i);
+}
+}
+```
+
+矩阵乘法计算的关键部分在循环中列出。该 Kernel 计算矩阵 𝐴 和 𝐵 的乘积，结果为 𝐶。矩阵 𝐴 和 𝐵 如图 4 所示进行了切块处理。对于矩阵 𝐶 的切块处理，在 naive Matmul 实现中已作过讨论。naive Matmul 和此 Matmul 之间的主要区别有：
+
+(1) 矩阵元素首先通过异步复制操作从全局内存（GMEM）带入共享内存（SMEM）；
+(2) 结果矩阵 𝐶 存储在寄存器内存（RMEM）中，并最终在尾声阶段写回全局内存（GMEM）；
+(3) 计算也沿着 𝐾 维度进行了切块处理。这使得第 (1) 步成为可能，因为与整个行或列面板相比，𝐴 和 𝐵 的切块足够小，可以适应共享内存。
+
+在列表 2 中需要强调的 CuTe 的关键 API 是：
+
+(1) local_tile：将线程块本地的切块提取到张量中。
+(2) local_partition：将线程块中线程本地的元素提取到张量中。
+(3) make_fragment_like: 申请寄存器，
+(4) make_tensor：基于显存地址，构建tensor
+(5) make_coord：构建访问坐标
+(6) copy：将数据从全局显存拷贝到共享显存，不同架构的硬件设备由不同的实现
+(7) gemm：矩阵乘法，不同架构的硬件设备由不同的实现，例如SIMT 以及 Tensor Core
+
+一旦使用 CuTe API 获取了本地切块，就可以使用 GEMM API 将对应的 𝐴 和 𝐵 切块相乘，并将结果累加到 𝐶 矩阵（在寄存器中）。在沿着 𝐾 维度处理完最后一个切块后，结果 𝐶 随后被写入 GMEM。 
+CuTe 中的一个重要特性是张量的视图（在 C++ 概念的意义上）。在复制操作期间，从全局内存读取数据到共享内存时，输入张量使用基于 AThreadLayoutA (tA) 和 BThreadLayout (tB) 的视图。例如，这样的视图是为了改善全局内存加载的合并效果。然而，在 GEMM 操作期间，使用的是基于 CThreadLayout (tC) 的视图。这种线程到数据的映射可以提高矩阵乘法计算的性能。但可能不会导致对全局内存的合并存储。原始共享内存可以使用**不同的视图进行读取和写入**。因此，复制和 GEMM 操作的线程布局是解耦的，以便用户可以为每个操作选择最佳的选项
+CuTe 访问全局存储时尽可能合并访存，将数据存储在共享存储时避免再次访问是bank conflict。
+
+
+###  Incorporating TMA and WGMMA instructions from NVIDIA Hopper Architecture
+
+The copy API call should be changed to include the TMA copy atom;
+The gemm API call should be changed to include the MMA atom – for Hopper, we choose WGM
+
+```c++
+....
+for (int k = 0; k < size<1>(tAgA); ++k)
+{
+.....
+//copy A and B from GMEM to SMEM using COPY views.
+if (threadIdx.x == 0)
+{
+/// Initialize shared memory barrier
+....
+copy(tma_copy_a, tAgA(_,k), tAsA);
+copy(tma_copy_b, tBgB(_,k), tBsB);
+}
+__syncthreads();
+warpgroup_fence_operand(tCrC);
+cute::gemm(wmma_atom, tCrA, tCrB, tCrC);
+warpgroup_commit_batch();
+warpgroup_wait<1>();
+__syncthreads();
+}
+```
