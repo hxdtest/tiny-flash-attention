@@ -38,3 +38,43 @@ several other typical operations such as linear scaling and clamping; other devi
 may also be used to perform custom operations.
 
 Collective API 体现了一个线程块或一个线程块集群（从Hopper架构开始）。Collective API 可用于构建 GEMM 以及与 GEMM 融合的尾部操作。默认的尾部操作简单地将 GEMM 的累加器从寄存器内存写入全局内存。CUTLASS 定义了几种其他典型操作，如线性缩放和限制；还可以使用其他设备端函数调用操作符来执行自定义操作。
+
+
+```c++
+using ElementA = float; // Element type for A matrix operand
+using ElementB = float; // Element type for B matrix operand
+using ElementC = float; // Element type for C and D matrix operands
+using ArchTag = cutlass::arch::Sm90; // Tag indicating the SM
+using OperatorClass = cutlass::arch::OpClassTensorOp; // Operator class tag
+using TileShape = Shape<_128,_128,_32>; // Threadblock-level tile size
+using ClusterShape = Shape<_1,_2,_1>; // Shape of the threadblocks in a cluster
+Collective API
+using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
+ArchTag, OperatorClass,
+ElementA, RowMajor, 4,
+Developing CUDA Kernels for GEMM on Hopper using CUTLASS • 9
+ElementB, ColumnMajor, 4,
+ElementAccumulator,
+TileShape, ClusterShape,
+cutlass::gemm::collective::StageCountAuto,
+cutlass::gemm::collective::KernelScheduleAuto
+>::CollectiveOp;
+using CollectiveEpilogue = typename cutlass::epilogue::collective::
+CollectiveBuilder<
+cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
+TileShape, ClusterShape,
+cutlass::epilogue::collective::EpilogueTileAuto,
+ElementC, ElementC,
+ElementC, ColumnMajor, 4,
+ElementC, ColumnMajor, 4,
+cutlass::epilogue::collective::EpilogueScheduleAuto
+>::CollectiveOp;
+Kernel API
+using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+Shape<int,int,int>, // Indicates ProblemShape
+CollectiveMainloop,
+CollectiveEpilogue
+>;
+Device API
+using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+```
