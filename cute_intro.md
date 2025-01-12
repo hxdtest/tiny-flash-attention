@@ -400,3 +400,12 @@ CUTLASS uses as listed in §5.
 
 
 Based on the layout of the shared memory and the mma instruction being used - we change the swizzle pattern to ensure both the stores and loads to and from shared memory are bank conflict free.
+
+
+![image](https://github.com/user-attachments/assets/109c22df-7fe4-40e5-b477-fb6b91253507)
+
+全局显存，抽象为一维连续存储
+共享显存，二维存储，存放和读取都要避免bank conflict
+框代表是的存储的element，Tx，代表Thread x访问对应的显存。
+
+共享显存到寄存器
