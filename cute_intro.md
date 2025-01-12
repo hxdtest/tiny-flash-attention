@@ -1,4 +1,4 @@
-Developing CUDA Kernels for Accelerated Matrix Multiplication on NVIDIA Hopper Architecture using the CUTLASS Library
+# Developing CUDA Kernels for Accelerated Matrix Multiplication on NVIDIA Hopper Architecture using the CUTLASS Library
 
 
 
@@ -11,61 +11,61 @@ for i in range(0, M):
          c[i][j] += A[i][k] * B[k][j]
 ```      
 ## 版本2 shared memory + 合并访问存储 + float4
- 
 ![image](https://github.com/user-attachments/assets/0cf59666-50e1-48da-8644-88b123975d79)
 ### 访存方式1，无法连续访存
 ```
-    for (int ph = 0; ph < width; ph++)
-    {
+for (int ph = 0; ph < width; ph++)
+{
 
-        for (int index_q = 0; index_q < TM; index_q++)
+    for (int index_q = 0; index_q < TM; index_q++)
+    {
+        for (int index_k = 0; index_k < BK; index_k++)
         {
-            for (int index_k = 0; index_k < BK; index_k++)
+            if (indA + index_q < M && index_k + ph * BK < K)
             {
-                if (indA + index_q < M && index_k + ph * BK < K)
-                {
-                    SA[(threadIdx.x * TM + index_q) * BK + index_k] = dA[(indA + index_q) * K + index_k + ph * BK];
-                }
-                else
-                {
-                    SA[(threadIdx.x * TM + index_q) * BK + index_k] = 0.0f;
-                }
+                SA[(threadIdx.x * TM + index_q) * BK + index_k] = dA[(indA + index_q) * K + index_k + ph * BK];
+            }
+            else
+            {
+                SA[(threadIdx.x * TM + index_q) * BK + index_k] = 0.0f;
             }
         }
+    }
 ```
 ### 访存方式2，可以连续访存
 ```
-    int indA = TM * (blockIdx.x * blockDim.x);
-    int indB = TN * (blockIdx.y * blockDim.y);
-    int width = (K + BK - 1) / BK;
-    float tmp[TM * TN] = {0.0f};
-    int tid = threadIdx.x + threadIdx.y * blockDim.x;
-    int smem_a_m = tid % 128;
-    int smem_a_k = tid / 128;
-    int smem_b_k = tid % 8;
-    int smem_b_n = tid / 8;
-    for (int ph = 0; ph < width; ph++)
+int indA = TM * (blockIdx.x * blockDim.x);
+int indB = TN * (blockIdx.y * blockDim.y);
+int width = (K + BK - 1) / BK;
+float tmp[TM * TN] = {0.0f};
+int tid = threadIdx.x + threadIdx.y * blockDim.x;
+int smem_a_m = tid % 128;
+int smem_a_k = tid / 128;
+int smem_b_k = tid % 8;
+int smem_b_n = tid / 8;
+for (int ph = 0; ph < width; ph++)
+{
+
+    if (indA + smem_a_m < M && smem_a_k + ph * BK < K)
+    {
+        SA[smem_a_m * BK + smem_a_k] = dA[(indA + smem_a_m) * K + smem_a_k + ph * BK];
+    }
+    else
+    {
+        SA[smem_a_m * BK + smem_a_k] = 0.0f;
+    }
+    if (indB + smem_b_n < N && smem_b_k + ph * BK < K)
     {
 
-        if (indA + smem_a_m < M && smem_a_k + ph * BK < K)
-        {
-            SA[smem_a_m * BK + smem_a_k] = dA[(indA + smem_a_m) * K + smem_a_k + ph * BK];
-        }
-        else
-        {
-            SA[smem_a_m * BK + smem_a_k] = 0.0f;
-        }
-        if (indB + smem_b_n < N && smem_b_k + ph * BK < K)
-        {
-
-            SB[smem_b_k * BN + smem_b_n] = dB[(smem_b_k + ph * BK) * N + indB + smem_b_n];
-        }
-        else
-        {
-            SB[smem_b_k * BN + smem_b_n] = 0.0f;
-        }
+        SB[smem_b_k * BN + smem_b_n] = dB[(smem_b_k + ph * BK) * N + indB + smem_b_n];
+    }
+    else
+    {
+        SB[smem_b_k * BN + smem_b_n] = 0.0f;
+    }
 
 ```
+访存方式1和访存方式2对比 
 ![image](https://github.com/user-attachments/assets/38f90267-9a5c-4074-83c2-b0567ca9132f)
 
 ## 版本3 - shard memory bank conflict
@@ -84,44 +84,44 @@ for (int id = 0; id < 4; id++)
 }
 ```
 
-## 版本4 - 向量内积->向量外积
+## 版本4 向量内积 vs 向量外积
 ### 向量内积
 ```
-  for (int index_q = 0; index_q < TM; index_q++)
-  {
-      for (int index_v = 0; index_v < TN; index_v++)
-      {
-          int reg_c_m = threadIdx.x * TM + index_q;
-          int reg_c_n = threadIdx.y * TN + index_v;
-          for (int index_k = 0; index_k < BK; index_k++)
-          {
-              tmp[index_q * TN + index_v] += SA[index_k * BM + reg_c_m] * SB[index_k * BN + reg_c_n];
-          }
-      }
-  }
+for (int index_q = 0; index_q < TM; index_q++)
+{
+    for (int index_v = 0; index_v < TN; index_v++)
+    {
+        int reg_c_m = threadIdx.x * TM + index_q;
+        int reg_c_n = threadIdx.y * TN + index_v;
+        for (int index_k = 0; index_k < BK; index_k++)
+        {
+            tmp[index_q * TN + index_v] += SA[index_k * BM + reg_c_m] * SB[index_k * BN + reg_c_n];
+        }
+    }
+}
 ```
 ### 向量外积
 ```
-    for (int index_k = 0; index_k < BK; index_k++)
+for (int index_k = 0; index_k < BK; index_k++)
+{
+    (float4 &)com_a[0] = (float4 &)SA[index_k * BM + threadIdx.x * TM];
+    (float4 &)com_a[4] = (float4 &)SA[index_k * BM + threadIdx.x * TM + 4];
+    (float4 &)com_b[0] = (float4 &)SB[index_k * BN + threadIdx.y * TN];
+    (float4 &)com_b[4] = (float4 &)SB[index_k * BN + threadIdx.y * TN + 4];
+    for (int index_q = 0; index_q < TM; index_q++)
     {
-        (float4 &)com_a[0] = (float4 &)SA[index_k * BM + threadIdx.x * TM];
-        (float4 &)com_a[4] = (float4 &)SA[index_k * BM + threadIdx.x * TM + 4];
-        (float4 &)com_b[0] = (float4 &)SB[index_k * BN + threadIdx.y * TN];
-        (float4 &)com_b[4] = (float4 &)SB[index_k * BN + threadIdx.y * TN + 4];
-        for (int index_q = 0; index_q < TM; index_q++)
+        for (int index_v = 0; index_v < TN; index_v++)
         {
-            for (int index_v = 0; index_v < TN; index_v++)
-            {
-                tmp[index_q * TN + index_v] += com_a[index_q] * com_b[index_v];
-            }
+            tmp[index_q * TN + index_v] += com_a[index_q] * com_b[index_v];
         }
     }
+}
 ```
 将SA和SB的数据按照行，加载到寄存器，后续计算从寄存器加载
 ## 版本5 加载数据和矩阵运算进行流水
 加载下次要计算的数据，然后进行本次的mm
 
-## 原因
+###  原因
 - 本质是GPU存储的层次结构，访问不同层级的存储速度不同。
 - 矩阵运算的特点，C矩阵中的每个元素需要，依赖访问A矩阵行以及B矩阵中的列。
 
@@ -220,7 +220,6 @@ using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
 ```c++
 using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 ```
-
 
 ## Tiled Matrix Multiplication Using CuTe
 CuTe is another API within the CUTLASS API that provides even more flexibility to develop GEMM kernels. It specifically introduces the concept of Shapes and Layouts, using which programmers can define the different levels of tiling explicitly. Additionally, it provide APIs to:
