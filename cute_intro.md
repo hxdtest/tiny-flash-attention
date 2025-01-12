@@ -48,33 +48,39 @@ using ArchTag = cutlass::arch::Sm90; // Tag indicating the SM
 using OperatorClass = cutlass::arch::OpClassTensorOp; // Operator class tag
 using TileShape = Shape<_128,_128,_32>; // Threadblock-level tile size
 using ClusterShape = Shape<_1,_2,_1>; // Shape of the threadblocks in a cluster
-Collective API
+```
+## Collective API
+```
 using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
-ArchTag, OperatorClass,
-ElementA, RowMajor, 4,
-Developing CUDA Kernels for GEMM on Hopper using CUTLASS • 9
-ElementB, ColumnMajor, 4,
-ElementAccumulator,
-TileShape, ClusterShape,
-cutlass::gemm::collective::StageCountAuto,
-cutlass::gemm::collective::KernelScheduleAuto
+  ArchTag, OperatorClass,
+  ElementA, RowMajor, 4,
+  Developing CUDA Kernels for GEMM on Hopper using CUTLASS • 9
+  ElementB, ColumnMajor, 4,
+  ElementAccumulator,
+  TileShape, ClusterShape,
+  cutlass::gemm::collective::StageCountAuto,
+  cutlass::gemm::collective::KernelScheduleAuto
 >::CollectiveOp;
 using CollectiveEpilogue = typename cutlass::epilogue::collective::
-CollectiveBuilder<
-cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-TileShape, ClusterShape,
-cutlass::epilogue::collective::EpilogueTileAuto,
-ElementC, ElementC,
-ElementC, ColumnMajor, 4,
-ElementC, ColumnMajor, 4,
-cutlass::epilogue::collective::EpilogueScheduleAuto
+  CollectiveBuilder<
+  cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
+  TileShape, ClusterShape,
+  cutlass::epilogue::collective::EpilogueTileAuto,
+  ElementC, ElementC,
+  ElementC, ColumnMajor, 4,
+  ElementC, ColumnMajor, 4,
+  cutlass::epilogue::collective::EpilogueScheduleAuto
 >::CollectiveOp;
-Kernel API
+```
+## Kernel API
+```c++
 using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-Shape<int,int,int>, // Indicates ProblemShape
-CollectiveMainloop,
-CollectiveEpilogue
+  Shape<int,int,int>, // Indicates ProblemShape
+  CollectiveMainloop,
+  CollectiveEpilogue
 >;
-Device API
+```
+## Device API
+```c++
 using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 ```
