@@ -358,3 +358,41 @@ warpgroup_wait<1>();
 __syncthreads();
 }
 ```
+
+
+### ADDITIONAL OPTIMIZATIONS
+
+从第2节回顾，最佳的CUTLASS核对于SGEMM的性能约为280 TFLOPS，而cuBLAS的性能约为215 TFLOPS。CUTLASS通过实现更多的优化来达到这一优越的性能水平。以下是文档中提到的一些优化措施[11]：
+
+(1) 软件流水线 – 软件流水线是一种隐藏内存延迟的技术，它通过让内存访问和数学指令并发执行来实现，同时始终考虑这些步骤之间的依赖关系。CUTLASS实现使用了多个缓冲区，既包括线程块层面，也包括warp层面。
+
+(2) Warp专业化 – 在软件流水线等优化下，不同的线程或线程组自然具有不同的角色。一些线程是生产者，负责加载数据，而其他线程是消费者，负责执行MMA指令。warp专业化的思想是将线程块中的warps空间上划分为两组，分别作为生产者和消费者。
+
+(3) 持久核 – 持久核是一种CUDA设计模式，旨在通过让核在GPU上持续存在以避免内核启动和配置的开销。在CUTLASS中，这意味着持久线程块在其生命周期内计算多个输出块。
+
+(4) 两个协作消费warp组 – WGMMA允许操作数𝐴的块存放在寄存器内存中，而不是共享内存中。然而，这限制了𝐴的块大小，因为寄存器空间有限。将块大小在𝑀维度上拆分并分配给两个不同的消费warp组，可以允许更大的块大小并减轻寄存器压力。
+
+(5) Warp专业化持久ping-pong核 – 从(4)中的两个消费warp组各自分配给不同的输出块。这允许一个消费warp组的最终红利与另一个消费warp组的数学操作重叠，从而最大化张量核心的利用率。同时在生产者warp组之间进行同步。
+
+根据我们的实验研究，特别是(5)这一点在第2图的第四列与280 TFLOPS最佳测量CUTLASS核之间的差距上起到了重要作用。
+
+
+### cute 扩展性
+ BATCHED-GEMM
+The AI workflow that we are targeting does not involve multiplying large square matrices. Instead, it involves
+large square matrices decomposed as products of matrices with small 𝐾 (e.g., 64 or 128), and with batch count
+𝐿 > 1 (e.g., 64 or 96); cf. [1, §2.2]. Such a scheme is popularly known as Batched-GEMM. Our CuTe program can
+be extended to handle Batched-GEMM by simply setting the third dimension of the grid to be 𝐿. We then use
+blockIdx.z when using the local_tile operation inside the CUDA kernel, as shown in listing 4.
+```
+auto gA = local_tile(mA, make_shape(MT, KT), make_coord(blockIdx.x, _, blockIdx.
+z));
+auto gB = local_tile(mB, make_shape(NT, KT), make_coord(blockIdx.y, _, blockIdx.
+z));
+auto gC = local_tile(mC, make_shape(MT, NT), make_coord(blockIdx.x, blockIdx.y,
+blockIdx.z);
+```
+Listing 4. Batched-GEMM kernel using CuTe
+Performance of such a Batched-GEMM using CuTe is shown in Figure 6. Surprisingly, the CuTe program
+outperforms both cuBLAS and CUTLASS, even though it does not use any of the additional optimizations that
+CUTLASS uses as listed in §5.
