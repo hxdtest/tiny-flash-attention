@@ -1,5 +1,6 @@
 Developing CUDA Kernels for Accelerated Matrix Multiplication on NVIDIA Hopper Architecture using the CUTLASS Library
 
+## 影响矩阵乘法的因素
 With reference to the functionality exposed by CUTLASS, performance is sensitive to many parameters such as:
 
 决定 cuda 矩阵乘法的因素包含以下
@@ -15,22 +16,23 @@ With reference to the functionality exposed by CUTLASS, performance is sensitive
 A basic listing of CUTLASS-based Matmul is described in Listing 1. Apart from CuTe, CUTLASS has the
 following 3 important APIs for GEMM, each corresponding to a distinct level of the GPU memory hierarchy [12]:
 
-(1) Device API;
+Cutalss API 层次
+## (1) Device API;
 The Device API is the highest-level API. It is invoked from the Host (i.e., CPU) and does not have any detail
 about the specifics of the Matmul implementation. This API is used by host-side .cu code to invoke CUTLASS’s
 GEMM kernels, much like cuBLAS API.
 
 设备API是最高级别的API。它从主机（即CPU）调用，不涉及Matmul实现的具体细节。此API由主机端的.cu代码调用，用于调用CUTLASS的GEMM内核，类似于cuBLAS API。
-
 在主机上启动kernel
-(2) Kernel API;
+
+## (2) Kernel API;
 The Kernel API embodies the entire grid. It thus schedules the collectives and is responsible for tiling the input
 matrices into row and column panels, loading the references to them and invoking the GEMM and the epilogues.
 Fusion of epilogues with GEMM happens at the Kernel API level.
 
 内核API体现了整个网格。因此，它负责调度集体操作，并将输入矩阵切分为行和列面板，加载这些面板的引用并调用GEMM（通用矩阵乘法）和尾声操作。GEMM与尾声操作的融合在内核API级别发生。
 
-(3) Collective API.
+## (3) Collective API.
 The Collective API embodies a thread block or a cluster of thread blocks (from Hopper architecture onwards).
 Collective APIs can be used to construct a GEMM as well as the epilogue to be fused with GEMM. The default
 epilogue simply writes out the accumulator of GEMM from register memory to global memory. CUTLASS defines
