@@ -396,3 +396,7 @@ Listing 4. Batched-GEMM kernel using CuTe
 Performance of such a Batched-GEMM using CuTe is shown in Figure 6. Surprisingly, the CuTe program
 outperforms both cuBLAS and CUTLASS, even though it does not use any of the additional optimizations that
 CUTLASS uses as listed in §5.
+
+
+
+Based on the layout of the shared memory and the mma instruction being used - we change the swizzle pattern to ensure both the stores and loads to and from shared memory are bank conflict free.
