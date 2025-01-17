@@ -209,3 +209,13 @@ onlineSoftmaxAndRescale(Fragment0 &mi, Fragment1 &sPrime, Fragment2 &accum,
     rowId += 2;
   }
 }
+
+
+1. softmax 要做好，必须要知道在寄存器中数据是如何分布 ? 
+2. fragment 多少个寄存器，寄存器上的数据对于原始分布是如何 ?
+3. thread 多少个thread 32，每个 thread 负责多少个数据 ？
+
+每个 thread 加载的数据源自哪里 在原始的数据在哪里？
+
+
+美国
