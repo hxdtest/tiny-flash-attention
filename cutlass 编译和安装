@@ -2,3 +2,12 @@ whersis nvcc
 export CUDACXX=${CUDA_INSTALL_PATH}/bin/nvcc
 
 cmake .. -DCUTLASS_NVCC_ARCHS=80 -DCUTLASS_ENABLE_CUBLAS=OFF-DCUTLASS_ENABLE_CUDNN=OFF -DCUTLASS_ENABLE_TESTS=OFF
+
+
+
+CMakefile中添加google test文件
+//Location of local GoogleTest repo to build against
+GOOGLETEST_DIR:STRING=/hetero_infer/hanxudong.hxd/cutlass/googletest
+
+编译
+nvcc -I../cutlass/include -I../cutlass/include/tools/util/include -gencode=arch=compute_80,code=compute_80 -std=c++17 run.cu -o main
